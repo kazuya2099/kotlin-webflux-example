@@ -10,11 +10,10 @@ import org.zupzup.kotlinwebfluxdemo.model.LightComment
 import org.zupzup.kotlinwebfluxdemo.model.Response
 import org.zupzup.kotlinwebfluxdemo.service.APIService
 import reactor.core.publisher.Mono
-import reactor.core.publisher.toMono
 import reactor.core.scheduler.Schedulers
 
 @RestController
-@RequestMapping(path = ["/api"], produces = [ APPLICATION_JSON_UTF8_VALUE ])
+@RequestMapping(path = ["/api"], produces = [ APPLICATION_JSON_VALUE ])
 class APIController(
         private val apiService: APIService
 ) {
@@ -26,23 +25,23 @@ class APIController(
         return apiService.fetchPosts()
                 .filter { it -> it.userId % 2 == 0 }
                 .take(20)
-                .map { post -> apiService.fetchComments(post.id)
-                        .parallel(4)
-                        .runOn(Schedulers.parallel())
+                .parallel(4)
+                .runOn(Schedulers.parallel())
+                .flatMap {post ->
+                    apiService.fetchComments(post.id)
                         .map { comment -> LightComment(email = comment.email, body = comment.body) }
-                        .sequential()
                         .collectList()
-                        .zipWith(post.toMono()) }
-
-                .flatMap { it -> it }
-                .map { result -> Response(
-                        postId = result.t2.id,
-                        userId = result.t2.userId,
-                        title = result.t2.title,
-                        comments = result.t1
-                ) }
+                        .map {
+                            comments -> Response(
+                                postId = post.id,
+                                userId = post.userId,
+                                title = post.title,
+                                comments = comments
+                            )
+                        }
+                }
+                .sequential()
                 .collectList()
                 .map { body -> ResponseEntity.ok().body(body) }
-                .toMono()
     }
 }
